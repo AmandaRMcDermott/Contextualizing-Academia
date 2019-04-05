@@ -22,7 +22,57 @@ url <- paste0('https://api.nytimes.com/svc/archive/v1/', dates, '.json?api-key='
 ny <- fromJSON(url[150])
 
 # trying it with purrr
-test <- map(url[1:10], fromJSON)
+l1 <- map(url[1:100], fromJSON)
+Sys.sleep(5)
+l2 <- map(url[51:100], fromJSON)
+Sys.sleep(5)
+l3 <- map(url[101:150], fromJSON)
+Sys.sleep(5)
+l4 <- map(url[151:200], fromJSON)
+Sys.sleep(5)
+l5 <- map(url[201:231], fromJSON)
+ny <- append(l1, l2, l3, l4, l5)
+
+for(i in 1:length(url)){
+  print(seq(from = i, to = 10 *i))
+}
+
+e <- 'Error in open.connection(con, "rb") : HTTP error 429.'
+
+test <- tryCatch(fromJSON(url[1:20]), error=function(e) Sys.sleep(1))
+```
+
+
+```{r}
+# fromJSON with tryCatch
+e <- simpleError('Error in open.connection(con, "rb") : HTTP error 429.')
+
+for(i in 1:length(url)){
+test <- url %>%
+  map(fromJSON) %>% 
+  Sys.sleep(1)
+}
+
+map(url[1:10], fromJSON, Sys.sleep(1))
+
+for(i in )
+
+myfunc <- function(){
+  test <- map(url, fromJSON)
+}
+attempt <- 1
+while(attempt <= 3){
+  attempt <- attempt + 1
+  try(
+    test2 <- myfunc()
+  )
+}
+
+test <- tryCatch(myfunc(fromJSON(url[1])), error = function(e) Sys.sleep(1))
+
+test <- tryCatch(myfunc(map(url[70:80], fromJSON)), error = function(e) Sys.sleep(1))
+tryCatch(myfunc(), error = function(e) Sys.sleep(1))
+
 test[["response"]][["docs"]]
 # find areas of interest
 ny <- ny[["response"]][["docs"]]
