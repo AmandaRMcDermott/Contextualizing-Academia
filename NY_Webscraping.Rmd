@@ -1,0 +1,130 @@
+---
+title: "Data Sci Project"
+author: "Amanda McDermott"
+date: "3/29/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(jsonlite)
+library(rvest)
+library(purrr)
+```
+
+To gain access to the New York Times archives, you must first create a developer account and create an API key. Go to https://developer.nytimes.com/get-started for more information. Create an API key under "Archive API" which allows users to get all NYT articles for a given month. Once your app is created, copy the API key and paste into the function below. 
+```{r}
+api <- rstudioapi::askForSecret("Api")
+```
+
+
+```{r}
+# create vector of dates to look at, so we're looking at NYT articles from 2000 to 2018
+dates <- paste(rep(2000:2018, each = 12), rep(1:12, 19), sep = "/")
+# add dates in from 2018 since there isn't a complete archive of 2018 yet
+dates[229:231] <- c("2019/1", "2019/2", "2019/3")
+# create urls unique to the given date and api key
+url <- paste0('https://api.nytimes.com/svc/archive/v1/', dates, '.json?api-key=', api)
+
+# functions that will be used with map
+f <- c("fromJSON", "Sys.sleep")
+# parameters respective to their functions
+param <- list(url, 5)
+# run invoke_map
+ny <- invoke_map(f, param)
+
+```
+
+```{r}
+# Convert this list to a dataframe by grabbing the revelant info
+ny_test2 <- ny[[1]][["response"]][["docs"]]
+map(ny[[1]][["response"]][["docs"]][.])
+map
+ny_test2 <- do.call(rbind.data.frame, ny_test2)
+
+
+
+
+# some tests
+ny_test <- fromJSON(url[1])
+ny_test <- ny_test[["response"]][["docs"]]
+```
+
+```{r}
+ny[["response"]][["docs"]]
+# find areas of interest
+ny <- ny[["response"]][["docs"]]
+
+unique(ny$subsectoinName)
+ny <- ny %>% 
+  rename()
+  select(web_url, pub_date, news_desk, section_name, subsectoinName) %>% 
+  filter(section_name == c("U.S.", "World", "Education", "Health"))
+  filter(subsectoinName == c("Politics", "Middle East", "Africa", "Europe", "Asia Pacific", "Americas", "Economy", "Energy & Environment"))
+
+ny <- as.data.frame(ny)
+
+
+ny_url <- read_html(ny$web_url[1])
+
+ny$text <- NA
+
+ny$text[1] <- ny_url %>% 
+  html_nodes(".efqptxt0+ .StoryBodyCompanionColumn .evys1bk0 , .evys1bk0~ .evys1bk0+ .evys1bk0") %>% 
+  html_text() %>% 
+  toString()
+```
+
+
+```{r}
+test_scrape <- function(){
+api <- "Wel728AGviAZjsG5bwtsLMYkjwOGzmxO"
+dates <- paste(rep(2000:2019, each = 12), rep(1:12, 19), sep = "/")
+url <- paste0('https://api.nytimes.com/svc/archive/v1/', dates, '.json?api-key=', api)
+
+ny <- fromJSON(url)
+
+# find areas of interest
+ny <- ny[["response"]][["docs"]]
+
+unique(ny$subsectoinName)
+ny <- ny %>% 
+  select(web_url, pub_date, news_desk, section_name, subsectoinName) %>% 
+  filter(subsectoinName == c("Politics", "Middle East", "Africa", "Europe", "Asia Pacific", "Americas", "Economy", "Energy & Environment"))
+
+ny <- as.data.frame(ny)
+
+for (i in seq_along(ny$web_url)){
+  
+  ny_url <- read_html(ny$web_url[i])
+  
+  ny$text <- NA
+  
+  ny$text[i] <- ny_url %>% 
+  html_nodes(".efqptxt0+ .StoryBodyCompanionColumn .evys1bk0 , .evys1bk0~ .evys1bk0+ .evys1bk0") %>% 
+  html_text() %>% 
+  toString()
+
+
+}
+
+}
+
+
+for (i in seq_along(ny)){
+  
+  ny_url <- read_html(ny$web_url[i])
+  
+  ny$text <- NA
+  
+  ny$text[i] <- ny_url %>% 
+  html_nodes(".efqptxt0+ .StoryBodyCompanionColumn .evys1bk0 , .evys1bk0~ .evys1bk0+ .evys1bk0") %>% 
+  html_text() %>% 
+  toString()
+
+
+}
+
+```
+
