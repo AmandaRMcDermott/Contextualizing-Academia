@@ -11,6 +11,9 @@ library(tidyverse)
 library(jsonlite)
 library(rvest)
 library(purrr)
+library(polite)
+
+library(data.table)
 ```
 
 To gain access to the New York Times archives, you must first create a developer account and create an API key. Go to https://developer.nytimes.com/get-started for more information. Create an API key under "Archive API" which allows users to get all NYT articles for a given month. Once your app is created, copy the API key and paste into the function below. 
@@ -33,8 +36,87 @@ f <- c("fromJSON", "Sys.sleep")
 param <- list(url, 5)
 # run invoke_map
 ny <- invoke_map(f, param)
+```
+
+```{r}
+test_function <- function(x){
+  # functions that will be used with map
+  f <- c("fromJSON", "Sys.sleep")
+  # parameters respective to their functions
+  param <- list(url3[x], 5)
+  # run invoke_map
+  ny <- invoke_map(f, param)
+}
+
+for(i in seq_along(url)){
+  test_url[i] <- test_function(i)
+}
+
+url2 <- url[106:230]
+test_url2 <- vector(mode = "list", length = 124)
+
+for(i in seq_along(url2)){
+  test_url2[i] <- test_function(i)
+}
+
+url3 <- url[231]
+test_url3 <- vector(mode = "list", length = 1)
+
+for(i in seq_along(url2)){
+  test_url3[i] <- test_function(i)
+}
 
 ```
+
+```{r}
+sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page", 
+                       "Washington", "Front Page; U.S.", "World; Washington", 
+                       "World; Front; Washington", "U.S.; Washington",  
+                       "Front Page; U.S.; Washington", "Education; U.S.", "World; Education",
+                       "Technology; U.S.; Washington", 
+                       "Technology; World", "Technology; Education", 
+                       "Technology; Science; Health")
+
+# Convert each test_url list to dataframes
+select_element <- function(x){
+  temp <- test_url[[x]][["response"]][["docs"]]
+  
+  temp <- temp %>% 
+  select(-c(blog, multimedia, headline, keywords, byline, word_count, 
+            slideshow_credits, subsection_name)) %>% 
+  filter(section_name %in% sections_interest)
+}
+
+ny_api_1 <- map(1:105, select_element) %>% rbindlist()
+
+select_element2 <- function(x){
+  temp <- test_url2[[x]][["response"]][["docs"]]
+  
+  temp <- temp %>% 
+  select(-c(blog, multimedia, headline, keywords, byline, word_count, 
+            slideshow_credits, subsection_name)) %>% 
+  filter(section_name %in% sections_interest)
+}
+
+ny_api_2 <- map(1:62, select_element2) %>% rbindlist()
+
+select_element3 <- function(x){
+  temp <- test_url3[[x]][["response"]][["docs"]]
+  
+  temp <- temp %>% 
+  select(-c(blog, multimedia, headline, keywords, byline, word_count, 
+            slideshow_credits, subsection_name)) %>% 
+  filter(section_name %in% sections_interest)
+}
+
+ny_api_3 <- map(1, select_element2) %>% rbindlist()
+
+# combine all
+ny_apis <- rbind(ny_api_1,  ny_api_3)
+write_csv(ny_apis,"ny_apis.csv")
+```
+
+
 Now to make this into a workable dataframe...
 ```{r}
 # Converting to a dataframe
@@ -55,10 +137,10 @@ ny_df <- map_df(list_el, select_element)
 
 Great, but now I only articles relevant to my interests. I'll filter out which articles I don't want to save time when I webscrap these later.
 ```{r}
-unique(ny_df$section_name)
+# unique(ny_df$section_name)
 sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page", 
                        "Washington", "Front Page; U.S.", "World; Books", "World; Washington", 
-                       "World; Front; Washington", "U.S.; Washington", "Washigton; Week in Review", 
+                       "World; Front; Washington", "U.S.; Washington",  
                        "Front Page; U.S.; Washington", "World; Health", "Health; U.S.",
                        "Education; U.S.", "World; Education", "Technology; U.S.; Washington", 
                        "Technology; World", "Front Page; Education; U.S.; Books", 
@@ -74,6 +156,7 @@ ny_urls <- ny_df %>%
 get_urls <- function(x){
   ny_urls$web_url[[x]]
 }
+
 elements <- c(1:917)
 ny_urls <- map_chr(elements, get_urls)
 
@@ -100,25 +183,95 @@ scrape_it <- function(x){
   toString()
 }
 
-# Create a dataframe for the text and dates to go into
-ny_texts <- tibble(date = NA,
-                   text = c(1:917))
 
-for(i in 1:917){
+
+for(i in seq_along(ny_texts)){
   ny_texts[i,2] <- scrape_it(i)
 }
-url_elements <- ny_urls[1:3]
-test <- map_df(url_elements, scrape_it)
 
 
+
+test <- scrape(session, params = unique_ny_params[1]) %>% 
+  html_nodes(".story-body-text") %>% 
+  html_text() %>% 
+  gsub("\'", "", .) %>% 
+  toString()
+
+
+# set params for polite package
+unique_ny_params <- str_replace_all(ny_urls, "https://www.nytimes.com", "")
+
+# there are some urls in this vector that can not be scraped from the given function so these few will be removed 
+links_to_remove <- (str_detect(unique_ny_params, "https:") == T)
+unique_ny_params <- unique_ny_params[links_to_remove == F]
+
+# Create a dataframe for the text to go into
+ny_texts <- tibble(date = c(NA), text = c(1:897))
+ny_texts2 <- tibble(date = c(NA), text = c(543:897))
+# function to politely scrape
+ny_scrape <- function(x){
+  
+bow("https://www.nytimes.com", delay = 10, force = T) %>% 
+  nod(path = unique_ny_params[x]) %>% 
+  scrape() %>% 
+  html_nodes(".story-body-text") %>% 
+  html_text() %>% 
+  gsub("\'", "", .) %>% 
+  toString()
+  
+}
+
+
+for(i in seq_along(unique_ny_params[1:897])){
+  ny_texts2[i,2] <- ny_scrape(i)
+}
+
+
+```
+
+
+
+```{r}
+get_text <- function(session, params){
+  nod(session) %>% 
+    scrape(params)
+}
+
+get_text(session, unique_ny_params[1])
 
 # functions that will be used with map
 f <- c("scrape_it", "Sys.sleep")
 # parameters respective to their functions
-param <- list(url_elements, 5)
+param <- list(list(1:3), 
+              list(5,5,5))
 # run invoke_map
 test <- invoke_map(f, param)
+test2 <- test %>% reduce(rbind)
 
+
+sim <- tribble(
+  ~f,            ~params,
+  "scrape_it",   seq(1:3),
+  "Sys.sleep",   list(rep(5, 3))
+)
+
+
+ get_cheese <- function(session, path, params){
+   nod(session, path) %>%
+     scrape(params)
+ }
+
+ res <- vector("list", 5)
+ # iterate over first 5 pages
+ for (i in seq(5)){
+   res[[i]] <- get_cheese(session,
+                path = "alphabetical",
+                params = paste0("page=", i)) %>%
+     html_nodes("h3 a") %>%
+     html_text()
+
+ }
+ res
 ```
 
 
