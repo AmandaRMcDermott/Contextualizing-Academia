@@ -12,7 +12,7 @@ library(jsonlite)
 library(rvest)
 library(purrr)
 library(polite)
-
+library(lubridate)
 library(data.table)
 ```
 
@@ -29,13 +29,6 @@ dates <- paste(rep(2000:2018, each = 12), rep(1:12, 19), sep = "/")
 dates[229:231] <- c("2019/1", "2019/2", "2019/3")
 # create urls unique to the given date and api key
 url <- paste0('https://api.nytimes.com/svc/archive/v1/', dates, '.json?api-key=', api)
-
-# functions that will be used with map
-f <- c("fromJSON", "Sys.sleep")
-# parameters respective to their functions
-param <- list(url, 5)
-# run invoke_map
-ny <- invoke_map(f, param)
 ```
 
 ```{r}
@@ -43,7 +36,7 @@ test_function <- function(x){
   # functions that will be used with map
   f <- c("fromJSON", "Sys.sleep")
   # parameters respective to their functions
-  param <- list(url3[x], 5)
+  param <- list(url2[x], 5)
   # run invoke_map
   ny <- invoke_map(f, param)
 }
@@ -69,6 +62,7 @@ for(i in seq_along(url2)){
 ```
 
 ```{r}
+# Sections to include in apis
 sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page", 
                        "Washington", "Front Page; U.S.", "World; Washington", 
                        "World; Front; Washington", "U.S.; Washington",  
@@ -77,7 +71,7 @@ sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page"
                        "Technology; World", "Technology; Education", 
                        "Technology; Science; Health")
 
-# Convert each test_url list to dataframes
+# Convert first group of apis to dataframes
 select_element <- function(x){
   temp <- test_url[[x]][["response"]][["docs"]]
   
@@ -89,17 +83,20 @@ select_element <- function(x){
 
 ny_api_1 <- map(1:105, select_element) %>% rbindlist()
 
+
+# Convert second group
 select_element2 <- function(x){
   temp <- test_url2[[x]][["response"]][["docs"]]
   
   temp <- temp %>% 
-  select(-c(blog, multimedia, headline, keywords, byline, word_count, 
-            slideshow_credits, subsection_name)) %>% 
+  select(-c(blog, multimedia, headline, keywords, byline, word_count)) %>% 
   filter(section_name %in% sections_interest)
 }
 
-ny_api_2 <- map(1:62, select_element2) %>% rbindlist()
 
+ny_api_2 <- map(1:125, select_element2) %>% rbindlist(fill = T)
+
+# Convert third group
 select_element3 <- function(x){
   temp <- test_url3[[x]][["response"]][["docs"]]
   
@@ -111,14 +108,28 @@ select_element3 <- function(x){
 
 ny_api_3 <- map(1, select_element2) %>% rbindlist()
 
-# combine all
-ny_apis <- rbind(ny_api_1,  ny_api_3)
+
+# clean and combine all
+ny_api_1 <- ny_api_1 %>% 
+  select(web_url, pub_date) %>% 
+  mutate(pub_date = str_extract(pub_date, "\\d{4}-\\d{2}-\\d{2}"))
+
+ny_api_2 <- ny_api_2 %>% 
+  select(web_url, pub_date) %>% 
+  mutate(pub_date = str_extract(pub_date, "\\d{4}-\\d{2}-\\d{2}"))
+
+ny_api_3 <- ny_api_3 %>% 
+  select(web_url, pub_date) %>% 
+  mutate(pub_date = str_extract(pub_date, "\\d{4}-\\d{2}-\\d{2}"))
+
+ny_apis <- rbind(ny_api_1, ny_api_2, ny_api_3)
+
 write_csv(ny_apis,"ny_apis.csv")
 ```
 
 
 Now to make this into a workable dataframe...
-```{r}
+```{r not needed}
 # Converting to a dataframe
 # there are 7904 elements in the ny list
 length(ny[[1]][["response"]][["docs"]])
@@ -136,7 +147,7 @@ ny_df <- map_df(list_el, select_element)
 ```
 
 Great, but now I only articles relevant to my interests. I'll filter out which articles I don't want to save time when I webscrap these later.
-```{r}
+```{r not needed}
 # unique(ny_df$section_name)
 sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page", 
                        "Washington", "Front Page; U.S.", "World; Books", "World; Washington", 
@@ -199,20 +210,20 @@ test <- scrape(session, params = unique_ny_params[1]) %>%
 
 
 # set params for polite package
-unique_ny_params <- str_replace_all(ny_urls, "https://www.nytimes.com", "")
+unique_ny_params <- str_replace_all(ny_apis$web_url, "https://www.nytimes.com", "")
 
-# there are some urls in this vector that can not be scraped from the given function so these few will be removed 
-links_to_remove <- (str_detect(unique_ny_params, "https:") == T)
-unique_ny_params <- unique_ny_params[links_to_remove == F]
+# some links have a different user agent so these will be scraped separately
+special_links <- (str_detect(unique_ny_params, "https:") == T)
+unique_ny_params <- unique_ny_params[special_links == F]
 
 # Create a dataframe for the text to go into
-ny_texts <- tibble(date = c(NA), text = c(1:897))
-ny_texts2 <- tibble(date = c(NA), text = c(543:897))
+ny_texts_add <- tibble(date = c(NA), text = c(1:5000))
+ny_texts2 <- tibble(date = c(NA), text = c(898:245496)) 
 # function to politely scrape
 ny_scrape <- function(x){
   
 bow("https://www.nytimes.com", delay = 10, force = T) %>% 
-  nod(path = unique_ny_params[x]) %>% 
+  nod(path = temp[x]) %>% 
   scrape() %>% 
   html_nodes(".story-body-text") %>% 
   html_text() %>% 
@@ -221,15 +232,19 @@ bow("https://www.nytimes.com", delay = 10, force = T) %>%
   
 }
 
+temp <- unique_ny_params[15001:20000]
 
-for(i in seq_along(unique_ny_params[1:897])){
-  ny_texts2[i,2] <- ny_scrape(i)
+for(i in seq_along(temp)){
+  ny_texts_add[i,2] <- ny_scrape(i)
 }
 
+ny_texts <- rbind(ny_texts, ny_texts_add)
 
+write_csv(ny_texts, "ny_texts.csv")
 ```
 
-
+webscraping only got 897:9058 of the obs, resulting in 8161 scraped articles. 
+I still need to get 1:896 and 9059:245496.
 
 ```{r}
 get_text <- function(session, params){
