@@ -14,10 +14,14 @@ library(purrr)
 library(polite)
 library(lubridate)
 library(data.table)
+library(doParallel)
+library(foreach)
+library(tictoc)
 ```
 
 To gain access to the New York Times archives, you must first create a developer account and create an API key. Go to https://developer.nytimes.com/get-started for more information. Create an API key under "Archive API" which allows users to get all NYT articles for a given month. Once your app is created, copy the API key and paste into the function below. 
 ```{r}
+# CIZfJ8en63FOMtAJakhDaQT05NSVm6NC
 api <- rstudioapi::askForSecret("Api")
 ```
 
@@ -128,52 +132,7 @@ write_csv(ny_apis,"ny_apis.csv")
 ```
 
 
-Now to make this into a workable dataframe...
-```{r not needed}
-# Converting to a dataframe
-# there are 7904 elements in the ny list
-length(ny[[1]][["response"]][["docs"]])
-list_el <- c(1:7904)
-
-# create a function to grab elements of the list and convert them to dataframes
-select_element <- function(x){
-  temp <- ny[[1]][["response"]][["docs"]][[x]]
-  temp <- data.frame(t(sapply(temp, c)))
-}
-
-# Make ny into a df
-ny_df <- map_df(list_el, select_element)
-
-```
-
-Great, but now I only articles relevant to my interests. I'll filter out which articles I don't want to save time when I webscrap these later.
-```{r not needed}
-# unique(ny_df$section_name)
-sections_interest <- c("World", "U.S.", "World; Washington", "World; Front Page", 
-                       "Washington", "Front Page; U.S.", "World; Books", "World; Washington", 
-                       "World; Front; Washington", "U.S.; Washington",  
-                       "Front Page; U.S.; Washington", "World; Health", "Health; U.S.",
-                       "Education; U.S.", "World; Education", "Technology; U.S.; Washington", 
-                       "Technology; World", "Front Page; Education; U.S.; Books", 
-                       "Technology; Education", "Technology; Science; Education; New York and Region",
-                       "Technology; Science; Health", "Technology; Front Page; Business")
-
-ny_urls <- ny_df %>% 
-  select(-c(blog, multimedia, headline, keywords, byline, word_count, X_id, 
-            slideshow_credits, subsection_name)) %>% 
-  filter(section_name %in% sections_interest) %>% 
-  select(web_url) # take only the urls for scraping
-
-get_urls <- function(x){
-  ny_urls$web_url[[x]]
-}
-
-elements <- c(1:917)
-ny_urls <- map_chr(elements, get_urls)
-
-
-```
-
+get articles
 ```{r}
 
 
@@ -214,11 +173,18 @@ unique_ny_params <- str_replace_all(ny_apis$web_url, "https://www.nytimes.com", 
 
 # some links have a different user agent so these will be scraped separately
 special_links <- (str_detect(unique_ny_params, "https:") == T)
+
 unique_ny_params <- unique_ny_params[special_links == F]
 
+unique_ny_params_2 <- unique_ny_params[special_links == T]
+
+
+
+temp <- unique_ny_params[25997:27000]
+
 # Create a dataframe for the text to go into
-ny_texts_add <- tibble(date = c(NA), text = c(1:5000))
-ny_texts2 <- tibble(date = c(NA), text = c(898:245496)) 
+ny_texts_add <- vector("character", length(temp))
+ 
 # function to politely scrape
 ny_scrape <- function(x){
   
@@ -232,64 +198,82 @@ bow("https://www.nytimes.com", delay = 10, force = T) %>%
   
 }
 
-temp <- unique_ny_params[15001:20000]
-
-for(i in seq_along(temp)){
+tic()
+for(i in seq_along(temp2)){
   ny_texts_add[i,2] <- ny_scrape(i)
 }
+toc()
+
+tic()
+ny_text_add <- seq_along(temp2) %>%
+  partition(temp2) %>% 
+  plyr::llply(ny_scrape) %>% 
+  reduce(rbind) %>% 
+  as_tibble()
+toc()
+
+
+
+
+
+
+
+# fastest webscraper so far
+# fastest webscraper so far
+tic()
+ny_texts_add <- foreach(i = 1:1004, .inorder = T, .combine = 'rbind') %dopar% {
+  ny_scrape(i) %>% as_tibble()
+} 
+toc()
+
+ny_texts_add$date <- NA
+ny_texts_add <- ny_texts_add %>% 
+  rename(text = "value") %>% 
+  select(date, text)
 
 ny_texts <- rbind(ny_texts, ny_texts_add)
 
+ny_texts_add <- NULL
+
+
 write_csv(ny_texts, "ny_texts.csv")
+
+
+# dates
+ny_apis_dates <- ny_apis %>% 
+  mutate(T_F = str_detect(web_url, "https://www.nytimes.com"))
+
+
+ny_apis_dates %>% filter(T_F == TRUE) %>%  View()
+
+link_dates <- str_c("https://www.nytimes.com", unique_ny_params)
+
+dates <- ny_apis$pub_date[ny_apis$web_url %in% link_dates]
+
+
+for_joining <- link_dates[1:26998]
+ny_texts <- cbind(ny_texts, for_joining)
+
+ny_texts <- ny_apis %>% 
+  filter(web_url %in% link_dates) %>% 
+  left_join(ny_texts, by = c("web_url" = "for_joining"))
+
+  
+
+
+
+ny_apis$pub_date[!(ny_apis$web_url %in% link_dates)]
 ```
 
 webscraping only got 897:9058 of the obs, resulting in 8161 scraped articles. 
 I still need to get 1:896 and 9059:245496.
 
 ```{r}
-get_text <- function(session, params){
-  nod(session) %>% 
-    scrape(params)
-}
+# attempt with parallel
 
-get_text(session, unique_ny_params[1])
-
-# functions that will be used with map
-f <- c("scrape_it", "Sys.sleep")
-# parameters respective to their functions
-param <- list(list(1:3), 
-              list(5,5,5))
-# run invoke_map
-test <- invoke_map(f, param)
-test2 <- test %>% reduce(rbind)
-
-
-sim <- tribble(
-  ~f,            ~params,
-  "scrape_it",   seq(1:3),
-  "Sys.sleep",   list(rep(5, 3))
-)
-
-
- get_cheese <- function(session, path, params){
-   nod(session, path) %>%
-     scrape(params)
- }
-
- res <- vector("list", 5)
- # iterate over first 5 pages
- for (i in seq(5)){
-   res[[i]] <- get_cheese(session,
-                path = "alphabetical",
-                params = paste0("page=", i)) %>%
-     html_nodes("h3 a") %>%
-     html_text()
-
- }
- res
+num_cores <- detectCores() - 1
+cl <- makeCluster(num_cores, type = "FORK")
+registerDoParallel(cl)
 ```
-
-
-
 
 
