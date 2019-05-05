@@ -8,14 +8,16 @@ library(shinythemes)
 library(readr)
 
 # Global
-full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/full_txt.csv")
+full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/STAT-612-Final-Project/master/Data/full_txt.csv")
 
-sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ", "Political Analysis" = "PA")
-sources2 <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ", "Political Analysis" = "PA")
+sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ")
+sources2 <<- list("Political Science Quarterly" = "PSQ", "American Political Science Association" = "APSA")
 
-minyear <<- 2013:2019
-maxyear <<- 2013:2019
+minyear <<- 2013:2018
+maxyear <<- 2013:2018
 
+# define arrows
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
 
 # Cache the results
 getTermMatrix <- memoise(function(sources, minyear = 2000, maxyear = 2014){
@@ -167,7 +169,19 @@ ui <- navbarPage(
     ),
     mainPanel(
       plotOutput('plot2', width = "auto", height = "600px"))
-  )
+  ),
+  tabPanel("Bigrams",
+           sidebarPanel(
+             selectInput("selection5", "Choose Journal:", choices = sources),
+             sliderInput(inputId = "number",
+                         label = "Choose Frequency",
+                         min = 5, max = 40, value = 20),
+             actionButton(inputId = "click",
+                          label = "Update")
+           ),
+           mainPanel(
+             plotOutput("ggraph")
+           ))
 )
 
 
@@ -233,6 +247,36 @@ server <- function(input, output, session) {
       colors = c("#6600CC", "red")
     )
   }, height = 525)
+  
+  ev <- eventReactive(input$click, {
+    req(input$selection5)
+    req(input$number)
+    input$update
+    filtering(input$selection5, input$number)
+  })
+  ev_2 <- eventReactive(input$click, {
+    input$update
+    graph_from_data_frame(ev())
+  })
+  
+  output$ggraph <- renderPlot(
+    ggplot(ev_2(), layout = "fr") +
+      geom_edge_link(arrow = a, alpha = 0.5) +
+      geom_node_point() +
+      geom_node_text(aes(label = name),
+                     vjust = 1,
+                     hjust = 1,
+                     repel = T) +
+      theme_economist() +
+      theme(
+        legend.position = "none", 
+        panel.grid = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line.x = element_line(color = "black", size = 0)
+      )
+  )
 }
 
 shinyApp(ui, server)

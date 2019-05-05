@@ -1,3 +1,11 @@
+---
+title: "Wordcloud Flex"
+output: 
+  flexdashboard::flex_dashboard:
+  vertical_layout: fill
+runtime: shiny
+---
+```{r global, include=FALSE}
 library(shiny)
 library(tm)
 library(wordcloud)
@@ -7,14 +15,15 @@ library(tidytext)
 library(shinythemes)
 library(readr)
 
+
 # Global
-full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/full_txt.csv")
+full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/STAT-612-Final-Project/master/Data/full_txt.csv")
 
-sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ", "Political Analysis" = "PA")
-sources2 <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ", "Political Analysis" = "PA")
+sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ")
+sources2 <<- list("Political Science Quarterly" = "PSQ", "American Political Science Association" = "APSA")
 
-minyear <<- 2013:2019
-maxyear <<- 2013:2019
+minyear <<- 2013:2018
+maxyear <<- 2013:2018
 
 
 # Cache the results
@@ -107,9 +116,56 @@ get_comp_comm <- function(sources, sources2, minyear = 2013, maxyear = 2018){
     #par(mfrow = c(1, 2))
     tdm
 }
+```
 
+Inputs {.sidebar}
+-------------------------------------
+```{r}
+selectInput("selection", "Choose a Journal:",
+                    choices = sources)
 
+actionButton("update", "Change")
 
+sliderInput("yrs", "Years", 2013, 2018, value = c(2013, 2014))
+
+sliderInput(
+          "freq",
+          "Min Freq:",
+          min = 1,
+          max = 50,
+          value = 15)
+
+sliderInput(
+          "max",
+          "Max Number of Words:",
+          min = 1,
+          max = 300,
+          value = 100)
+      )
+```
+
+### Wordcloud
+-------------------------------------
+```{r}
+# Make the wordcloud drawing predictable during a session
+#wordcloud_rep <- repeatable(wordcloud)
+
+#output$plot <- renderPlot({
+#    v <- terms()
+#    wordcloud_rep(
+#      names(v),
+#      v,
+#      scale = c(7, 2),
+#      min.freq = input$freq,
+#      max.words = input$max,
+#      colors = brewer.pal(15, "Set2")
+#    )
+#  })
+
+#plotOutput('plot', width = "auto", height = "600px")
+```
+
+```{r}
 ui <- navbarPage(
   "Journal Articles Wordcloud",
   theme = shinytheme("superhero"),
@@ -235,8 +291,12 @@ server <- function(input, output, session) {
   }, height = 525)
 }
 
-shinyApp(ui, server)
 
 
+```
 
+
+```{r}
+
+```
 

@@ -11,7 +11,7 @@ library(wordcloud2)
 
 
 # Global
-full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/STAT-612-Final-Project/master/Data/full_txt.csv")
+full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/full_txt.csv")
 
 sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ")
 sources2 <<- list("Political Science Quarterly" = "PSQ", "American Political Science Association" = "APSA")

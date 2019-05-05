@@ -34,9 +34,9 @@ vol_links <- vol_links %>%
 full_vol_links <- map2_chr(base_link, vol_links, paste0)
 
 
-
+# these links give us access to the text
 get_html_urls <- function(x){
-  url <- read_html(full_vol_links[1])
+  url <- read_html(full_vol_links[x])
   
  url <-  url %>%  
     html_nodes(".links > li > a") %>% 
@@ -57,6 +57,7 @@ html_links <- unlist(html_links)
 # combine main link with each partial link
 html_links <- map2_chr(base_link, html_links, paste0)
 
+
 # function to scrape
 scrape <- function(x){
   read_links <- read_html(html_links[x])
@@ -71,8 +72,6 @@ scrape <- function(x){
 }
 
 df <- map_df(seq_along(html_links), scrape)
-beep(1)
-
 
 # grabbing dates (dates are from when the article was published online)
 grab_dates <- function(x){
@@ -84,10 +83,35 @@ grab_dates <- function(x){
     as_tibble()
 }
 
+
 dates <- map_df(seq_along(html_links), grab_dates)
+dates <- dates[-72,1]
+
+# I want to find the impact score for each of these articles so first I need to get the doi
+get_doi <- function(x){
+  urls <- read_html(html_links[x])
+ 
+  urls <- urls %>%
+    html_nodes(".doi") %>%
+    html_text() %>%
+    str_replace("https://", "") %>%
+    str_replace(".org", "") %>% 
+    paste0("https://api.altmetric.com/v1/", .)
+    
+}
+
+
+dois <- map(seq_along(html_links), get_doi)
+beep(1)
+dois <- unlist(dois)
+ifelse(dois %in% remove_dois, 0, 1)
+
+remove_dois <- c("https://api.altmetric.com/v1/10.1017/psrm.2014.8", "https://api.altmetric.com/v1/doi/10.1017/pan.2017.28")
+test <- dois[(dois %in% remove_dois)]
+
 
 # combine data and rename columns
-df <- cbind(political_analysis_text, dates)
+df_1 <- cbind(df, dates, dois)
 names(df) <- c("text", "date")
 df <- df %>% mutate(date = dmy(date))
 
@@ -98,6 +122,11 @@ df$source <- "PA"
 ```
 
 ```{r}
+# save <- full_txt %>% 
+#  select(-name) %>% 
+#  rbind(political_analysis_text)
+# write_csv(save, "full_text.csv")
+
 # combine with APSJ and PSQ
 tidy_txt <- full_txt %>% 
   select(-name) %>% 
