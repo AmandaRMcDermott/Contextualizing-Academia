@@ -6,15 +6,47 @@ library(tidyverse)
 library(tidytext)
 library(shinythemes)
 library(readr)
+library(igraph)
+library(ggraph)
+library(ggthemes)
 
 # Global
-full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/STAT-612-Final-Project/master/Data/full_txt.csv")
+full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/full_texts.csv")
 
-sources <<- list("American Political Science Association" = "APSA", "Political Science Quarterly" = "PSQ")
-sources2 <<- list("Political Science Quarterly" = "PSQ", "American Political Science Association" = "APSA")
+# Tidy and tokenize
+full_txt <- full_txt %>% 
+  separate(date, into = c("year", "month", "day")) %>% 
+  select(-day, -month) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  unnest_tokens(word, text) %>% 
+  anti_join(stop_words)
 
-minyear <<- 2013:2018
+my_stopwords <- tibble(word = c("stix", "1", "2", "3", "4", "0", "5", "x1d6fc", "e.g", "al", "6", "x_", "10", "ij", "x1d6fd", "i.e", "y_", "7", "8", "9", "10", "11", "12", "gd", "20", "tq", "13", "14","15","16","17","18","19","20", "x1d702", "x170e", "ast", "x1d707", "mathbf", "unicode", "au", "library", "libraryfind", "scholarfind", "eqnarray", "displaystyle", "web", "crossref"))
+
+full_txt <- full_txt %>% 
+  anti_join(my_stopwords) %>% 
+  unnest_tokens(text, word, token = "sentences")
+
+
+sources <<- list("American Political Science Association" = "AJPS", "Political Science Quarterly" = "PSQ", "Political Analysis" = "PA")
+sources2 <<- list("Political Science Quarterly" = "PSQ", "American Political Science Association" = "AJPS", "Political Analysis" = "PA")
+
+minyear <<- 2000:2018
 maxyear <<- 2013:2018
+
+
+# define trigram functions
+text_trigram <- full_txt %>% 
+  unnest_tokens(trigram, text, token = "ngrams", n = 3) %>% 
+  separate(trigram, c("word1", "word2", "word3"), sep = " ")
+
+filtering <- function(sources,  number = 20){
+  text_trigram %>% 
+    filter(source == sources) %>% 
+    count(word1, word2, word3, sort = T) %>% 
+    filter(n > number)
+}
+
 
 # define arrows
 a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
@@ -111,7 +143,6 @@ get_comp_comm <- function(sources, sources2, minyear = 2013, maxyear = 2018){
 }
 
 
-
 ui <- navbarPage(
   "Journal Articles Wordcloud",
   theme = shinytheme("superhero"),
@@ -170,17 +201,21 @@ ui <- navbarPage(
     mainPanel(
       plotOutput('plot2', width = "auto", height = "600px"))
   ),
-  tabPanel("Bigrams",
+  tabPanel("Trigrams",
            sidebarPanel(
-             selectInput("selection5", "Choose Journal:", choices = sources),
+             selectInput("selection5", "Choose Journal:", choices = sources2),
+             
              sliderInput(inputId = "number",
                          label = "Choose Frequency",
-                         min = 5, max = 40, value = 20),
-             actionButton(inputId = "click",
-                          label = "Update")
+                         min = 5, max = 150, value = 20),
+             
+           #  sliderInput("yrs3", "Years", 2003, 2019, value = c(2013, 2014)),
+             actionButton(inputId = "click", label = "Update")
            ),
            mainPanel(
-             plotOutput("ggraph")
+             plotOutput("ggraph"),
+             tableOutput("stats")
+             
            ))
 )
 
@@ -223,6 +258,8 @@ server <- function(input, output, session) {
   wordcloud_rep <- repeatable(wordcloud)
   wordcloud_comp_rep <- repeatable(comparison.cloud)
   
+  color_palette <- colorRampPalette(brewer.pal(15, "Paired"))(25)
+  
   output$plot <- renderPlot({
     v <- terms()
     wordcloud_rep(
@@ -231,7 +268,7 @@ server <- function(input, output, session) {
       scale = c(7, 2),
       min.freq = input$freq,
       max.words = input$max,
-      colors = brewer.pal(15, "Set2")
+      colors = color_palette
     )
   }, height = 700)
   
@@ -244,24 +281,34 @@ server <- function(input, output, session) {
       min.freq = input$freq2,
       max.words = input$max2,
       #title.size = 1.5,
-      colors = c("#6600CC", "red")
+      colors = c("#ef8a62", "#67a9cf")
     )
   }, height = 525)
   
   ev <- eventReactive(input$click, {
     req(input$selection5)
     req(input$number)
-    input$update
-    filtering(input$selection5, input$number)
+   # minyear <- input$yrs3[1]
+  #  maxyear <- input$yrs3[2]
+  #  req(input$yrs3[1])
+  #  req(input$yrs3[2])
+    input$update2
+    isolate({
+      withProgress({
+        setProgress(message = "Making the plot... wait one second...")
+        filtering(input$selection5, input$number)
+      })
+    })
   })
+  
   ev_2 <- eventReactive(input$click, {
     input$update
     graph_from_data_frame(ev())
   })
   
   output$ggraph <- renderPlot(
-    ggplot(ev_2(), layout = "fr") +
-      geom_edge_link(arrow = a, alpha = 0.5) +
+    ggraph(ev_2(), layout = "fr") +
+      geom_edge_link(arrow = a, alpha = .5) +
       geom_node_point() +
       geom_node_text(aes(label = name),
                      vjust = 1,
@@ -269,7 +316,7 @@ server <- function(input, output, session) {
                      repel = T) +
       theme_economist() +
       theme(
-        legend.position = "none", 
+        legend.position = "none",
         panel.grid = element_blank(),
         axis.title = element_blank(),
         axis.text = element_blank(),
@@ -277,6 +324,14 @@ server <- function(input, output, session) {
         axis.line.x = element_line(color = "black", size = 0)
       )
   )
+  
+  
+  output$stats <- function() {
+    ev() %>% 
+      head() %>% 
+      kable() %>% 
+      kable_styling()
+  }
 }
 
 shinyApp(ui, server)
