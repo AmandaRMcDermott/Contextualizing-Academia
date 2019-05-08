@@ -129,6 +129,73 @@ function(input, output, session) {
       kable_styling()
   }
   
+  output$sentiment_time <- renderPlotly({
+    test <- tidytexts %>% 
+      filter(!is.na(sent_score)) %>% 
+      group_by(month = floor_date(date, "month"), source) %>% 
+      summarize(mean_score = mean(sent_score)) %>% 
+      ggplot(., aes(month, mean_score)) +
+      geom_line(aes(group = source, color = source), alpha = .5) +
+      geom_smooth(aes(group = source, color = source, weight = 2), se = F) +
+      theme_minimal() +
+      ggtitle("Mean Sentiment Score Over Time") +
+      ylab("Sentiment Score") +
+      xlab("Time")
+    
+    ggplotly(test)
+  })
+  
+  output$percentile_time <- renderPlotly({
+    p <- full_texts %>% 
+      filter(!is.na(score)) %>% 
+      group_by(month = floor_date(date, "month"),  source, year = floor_date(date, "year")) %>% 
+      summarize(med_score = median(score),
+                avg_pct = mean(context.all.pct)
+      ) %>% 
+      ggplot(., aes(month, avg_pct)) +
+      geom_line(aes(color = source), alpha = .5) +
+      geom_smooth(aes(color = source, weight = 2), se = F) +
+      theme_minimal() +
+      ggtitle("Average Percentile Over Time") +
+      ylab("Percentile") +
+      xlab("Time")
+    
+    ggplotly(p)
+  })
+  
+  output$altmetric_score <- renderPlotly({
+    p2 <- full_texts %>% 
+      filter(!is.na(score)) %>% 
+      group_by(month = floor_date(date, "month"),  source, year = floor_date(date, "year")) %>% 
+      summarize(med_score = median(score),
+                total_tweets = sum(cited_by_tweeters_count)) %>% 
+      ggplot(., aes(month, med_score)) +
+      geom_line(aes(color = source), alpha = .5) + theme_minimal() +
+      geom_smooth(aes(color = source), se = F) +
+      ggtitle("Median Altmetric Score Over Time") +
+      xlab("Time") +
+      ylab("Median Score")
+    
+    ggplotly(p2)
+  })
+  
+  output$tweets <- renderPlotly({
+    pt <- full_texts %>% 
+      filter(!is.na(score)) %>% 
+      group_by(month = floor_date(date, "month"),  source, year = floor_date(date, "year")) %>% 
+      summarize(med_score = median(score),
+                total_tweets = sum(cited_by_tweeters_count)) %>% 
+      ggplot(., aes(month, total_tweets)) +
+      geom_line(aes(color = source), alpha = .5) + theme_minimal() +
+      geom_smooth(aes(color = source), se = F) +
+      ggtitle("Tweets Over Time") +
+      xlab("Time") +
+      ylab("Tweets")
+    
+    ggplotly(pt)
+  })
+  
+  
 }
 
 

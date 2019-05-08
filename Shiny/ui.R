@@ -16,7 +16,7 @@ library(lubridate)
 
 
 dashboardPage(
-  dashboardHeader(title = "Contextualizing Academic"),
+  dashboardHeader(title = "Journal Texts"),
   
   dashboardSidebar(
     sidebarMenu(
@@ -25,10 +25,9 @@ dashboardPage(
       menuItem("Comparison Cloud", 
                tabName = "CC"),
       menuItem("Trigrams",
-               tabName = "Trigrams")
-      #,
-      #menuItem("Graphs",
-      #         tabName = "Graphs")
+               tabName = "Trigrams"),
+      menuItem("Graphs",
+               tabName = "Graphs")
     )
   ),
   
@@ -97,14 +96,13 @@ dashboardPage(
                 ),
                 box(width = 8, height = 750, plotOutput("ggraph", width = "100%"),
                     tableOutput("stats"))
+              )),
+      tabItem(tabName = "Graphs",
+              fluidRow(
+                box(width = 12, plotlyOutput("sentiment_time")),
+                box(width = 12, plotlyOutput("percentile_time")),
+                box(width = 12, plotlyOutput("altmetric_score")),
+                box(width = 12, plotlyOutput("tweets"))
               ))
-      #,
-      #tabItem(tabName = "Graphs",
-      #        fluidRow(
-      #          box(width = 12, plotlyOutput("sentiment_time")),
-      #          box(width = 12, plotlyOutput("percentile_time")),
-      #          box(width = 12, plotlyOutput("altmetric_score")),
-      #          box(width = 12, plotlyOutput("tweets"))
-      #        ))
     ))
 )

@@ -17,8 +17,8 @@ library(lubridate)
 
 # Global
 full_txt <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/full_texts.csv")
-#arm_poli_lexicon <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/arm_poli_lexicon.csv")
-#poli_lexicon <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/poli_lexicon.csv")
+arm_poli_lexicon <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/arm_poli_lexicon.csv")
+poli_lexicon <- read_csv("https://raw.githubusercontent.com/Glacieus/DataSci/master/Data/poli_lexicon.csv")
 
 #full_txt <- full_txt %>% sample_n(600)
 full_texts <- full_txt
@@ -58,13 +58,12 @@ filtering <- function(sources,  number = 20){
 }
 
 # for plotly
-#colnames(poli_lexicon) <- c("word", "sent_score")
-#tidytexts <- full_texts %>% 
-#  unnest_tokens(word, text) %>% 
-#  left_join(arm_poli_lexicon, by = "word") %>% 
-#  left_join(poli_lexicon, by = "word") %>% 
-#  anti_join(stop_words) %>% 
-#  anti_join(my_stopwords)
+tidytexts <- full_texts %>% 
+  unnest_tokens(word, text) %>% 
+  left_join(arm_poli_lexicon, by = "word") %>% 
+  left_join(poli_lexicon, by = "word") %>% 
+  anti_join(stop_words) %>% 
+  anti_join(my_stopwords)
 
 
 
