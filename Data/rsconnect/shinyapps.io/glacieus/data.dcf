@@ -1,0 +1,10 @@
+name: data
+title:
+username:
+account: glacieus
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 915861
+bundleId: 2067568
+url: https://glacieus.shinyapps.io/data/
+when: 1557259876.12859

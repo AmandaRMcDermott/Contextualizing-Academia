@@ -1,0 +1,13 @@
+name: DataSci
+title: DataSci
+username:
+account: glacieus
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 916431
+bundleId: 2068169
+url: https://glacieus.shinyapps.io/DataSci/
+when: 1557277404.1332
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: LICENSE|README.md|dont _push/flextest.html|dont _push/flextest.Rmd|dont _push/hu_liu_sentiment.xlsx|dont _push/ny_texts.csv|Final_Shiny/app.R|Final_Shiny/rsconnect/shinyapps.io/glacieus/Final_Shiny.dcf|Images/prop_diff_sent.png|Images/Prop_word_weights.png|Shiny/global.R|Shiny/server.R|Shiny/ui.R|Shiny/rsconnect/shinyapps.io/glacieus/DataSci.dcf|SHiny2/app.R
