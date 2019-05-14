@@ -1,0 +1,1124 @@
+---
+title: "Jour_pols_webscraping"
+author: "Amanda McDermott"
+date: "4/16/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(jsonlite)
+library(rvest)
+library(purrr)
+library(lubridate)
+library(tm)
+library(tidytext)
+library(ldatuning)
+library(beepr)
+library(httr)
+library(rAltmetric)
+library(plotly)
+```
+
+```{r, Political Analysis, cache = TRUE}
+# base link - this will be used to complete partial links throughout the scraping process
+base_link <- "https://www.cambridge.org"
+
+# Let's get the volume links first
+vol_links <- read_html("https://www.cambridge.org/core/journals/political-analysis/all-issues")
+
+vol_links <- vol_links %>% 
+  html_nodes(".fourth > li > ul > li > a") %>%
+  html_attr("href")
+
+# combine with base_link to get the full link
+full_vol_links <- map2_chr(base_link, vol_links, paste0)
+
+
+# these links give us access to the text
+get_html_urls <- function(x){
+  url <- read_html(full_vol_links[x])
+  
+ url <-  url %>%  
+    html_nodes(".links > li > a") %>% 
+    html_attr("href") %>% 
+    unlist() %>% 
+    as.vector()
+ 
+ # links with "core/product" in their string will lead us to the scrapable pages
+ keep_url <- str_detect(url, "core/product")
+ url <- url[keep_url == T]
+ 
+}
+
+html_links <- map(seq_along(full_vol_links), get_html_urls)
+# combine into a character vector
+html_links <- unlist(html_links)
+
+# combine main link with each partial link
+html_links <- map2_chr(base_link, html_links, paste0)
+
+
+# function to scrape
+scrape <- function(x){
+  read_links <- read_html(html_links[x])
+  
+  read_links %>%
+    html_nodes("#contentContainer") %>%
+    html_text() %>%
+    str_trim() %>%
+    toString() %>%
+    str_squish() %>% 
+    as_tibble()
+}
+
+df <- map_df(seq_along(html_links), scrape)
+
+# grabbing dates (dates are from when the article was published online)
+grab_dates <- function(x){
+  url <- read_html(html_links[x])
+  
+  url %>% 
+    html_nodes(".source+ .published .date") %>%
+    html_text() %>% 
+    as_tibble()
+}
+
+
+dates <- map_df(seq_along(html_links), grab_dates)
+dates <- dates[-72,1]
+
+# Grab the article titles
+scrape_titles <- function(x){
+  read_links <- read_html(html_links[x])
+  
+  read_links %>%
+    html_node(".row .title") %>%
+    html_text() %>%
+    str_trim() %>%
+    toString() %>%
+    str_squish() %>% 
+    as_tibble()
+}
+
+titles <- map(seq_along(html_links), scrape_titles)
+titles <- unlist(titles)
+
+# I want to find the impact score for each of these articles so first I need to get the doi
+get_doi <- function(x){
+  urls <- read_html(html_links[x])
+ 
+  urls <- urls %>%
+    html_nodes(".doi") %>%
+    html_text() %>%
+    str_replace("https://", "") %>%
+    str_replace(".org", "") %>% 
+    paste0("https://api.altmetric.com/v1/", .)
+    
+}
+
+
+dois <- map(seq_along(html_links), get_doi)
+dois <- unlist(dois)
+
+remove_dois <- c("https://api.altmetric.com/v1/10.1017/psrm.2014.8", "https://api.altmetric.com/v1/doi/10.1017/pan.2017.28")
+
+ifelse(dois %in% remove_dois, 0, 1)
+
+final_dois <- dois[!(dois %in% remove_dois)]
+
+
+# combine data and rename columns
+df_1 <- cbind(titles, df, dates, dois)
+names(df_1) <- c("title", "text", "date", "doi")
+df_1 <- df_1 %>% mutate(date = dmy(date))
+
+df_1$source <- "PA"
+
+
+
+write_csv(df_1, "political_analysis_text.csv")
+
+```
+
+
+
+```{r Altmetric for Poli Analysis}
+
+# Altmetric search
+test_dois <- str_replace(df_1$doi, "https://api.altmetric.com/v1/doi/", "")
+
+alm <- function(x){
+  altmetrics(doi = test_dois[x]) %>% 
+  altmetric_data() %>% 
+  select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct, cited_by_tweeters_count, details_url)
+}
+
+# These articles don't have scores
+test_dois[2] <- NA # 10.1017/pan.2018.11
+test_dois[10] <- NA
+test_dois[11] <- NA # "10.1017/pan.2018.43"
+test_dois[24] <- NA # "10.1017/pan.2018.16"
+test_dois[34] <- NA # "10.1017/pan.2017.31"
+test_dois[37] <- NA
+
+results <- map_df(seq_along(test_dois), alm)
+
+df_1 <- df_1 %>% 
+  left_join(results, by = "title")
+```
+
+
+```{r APSA}
+url <- read_html("https://www.cambridge.org/core/journals/american-political-science-review/all-issues")
+
+partial_links <- url %>% 
+  html_nodes(".fourth .row") %>% 
+  html_attr("href")
+
+# these are the scrapable ones
+partial_links <- partial_links[1:34]
+full_links <- paste0("https://www.cambridge.org", partial_links)
+
+
+# titles
+grab_titles <- function(x){
+test <- read_html(full_links[x])
+test %>%
+  html_nodes(".part-link") %>% 
+  html_text() %>% 
+  gsub("\n", "", .) %>% 
+  as_tibble()
+}
+
+apsa <- map(seq_along(full_links), grab_titles)
+apsa_titles <- unlist(apsa)
+
+# article links
+article_links <- function(x){
+  test <- read_html(full_links[x])
+
+  test %>%
+  html_nodes(".part-link") %>% 
+  html_attr("href")
+}
+
+apsa_article_links <- map(seq_along(full_links), article_links)
+apsa_article_links <- unlist(apsa_article_links)
+apsa_article_links <- paste0("https://www.cambridge.org", apsa_article_links)
+
+article_links2 <- function(x){
+test <- read_html(apsa_article_links[x])
+test %>%
+  html_nodes(".core-reader") %>% 
+  html_attr("href")
+}
+
+apsa_article_links <- map(seq_along(apsa_article_links), article_links2)
+apsa_article_links <- paste0("https://www.cambridge.org", apsa_article_links)
+apsa_article_links <- apsa_article_links[1:561]
+apsa_article_links <-  apsa_article_links[apsa_article_links != "https://www.cambridge.orgcharacter(0)"]
+
+# grab the text
+scrape <- function(x){
+test <- read_html(apsa_article_links[x])
+tryCatch({
+test %>%
+  html_nodes("#contentContainer") %>% 
+  html_text() %>% 
+  gsub("\n", "", .) %>% 
+  toString() %>% 
+  as_tibble()
+  }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+apsa_text <- map_df(1:502, scrape)
+
+scrape <- function(x){
+test <- read_html(apsa_article_links[x])
+tryCatch({
+test %>%
+  html_nodes(".doi") %>% 
+  html_text() %>% 
+  gsub("\n", "", .) %>% 
+  toString() %>% 
+  as_tibble()
+  }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+# grab the dates
+grab_dates <- function(x){
+  
+  test <- read_html(apsa_article_links[x])
+test %>%
+  html_nodes(".source+ .published .date") %>% 
+  html_text() %>% 
+  as_tibble()
+}
+
+apsa_dates <- map_df(seq_along(apsa_article_links), grab_dates)
+beep(1)
+
+# grab titles
+grab_titles <- function(x){
+test <- read_html(apsa_article_links[x])
+
+test %>%
+  html_node(".row .title") %>% 
+  html_text()
+}
+
+apsa_titles <- map(seq_along(apsa_article_links), grab_titles)
+apsa_titles <- unlist(apsa_titles)
+
+
+# dois for altmetric
+grab_dois <- function(x){
+test <- read_html(apsa_article_links[x])
+test %>%
+  html_nodes(".doi") %>% 
+  html_attr("href") %>% 
+  as_tibble()
+}
+
+apsa_dois <- map_df(seq_along(apsa_article_links), grab_dois)
+
+# bring together values
+apsa_full <- cbind(apsa_dates$value, apsa_titles, apsa_text$value)
+colnames(apsa_full) <- c("date", "title", "text")
+apsa_full <- as.data.frame(apsa_full)
+apsa_full <- apsa_full %>% 
+  mutate(date = dmy(as.character(date)))
+```
+
+```{r APSA Altmetric}
+# get altmetric info for apsa
+test_dois <- str_replace(apsa_dois$value, "https://doi.org/", "")
+
+alm <- function(x){
+  tryCatch({
+    altmetrics(doi = test_dois[x]) %>% 
+  altmetric_data() %>% 
+  select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct, cited_by_tweeters_count, details_url)
+    }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+results <- map_df(seq_along(test_dois), alm)
+beep(1)
+
+# failed dois - remove twitter count column
+failed_dois <- "Error: 21 failed 
+Error: 41 failed 
+Error: 61 failed 
+Error: 84 failed 
+Error: 100 failed 
+Error: 116 failed 
+Error: 118 failed 
+Error: 122 failed 
+Error: 147 failed 
+Error: 151 failed 
+Error: 168 failed 
+Error: 183 failed 
+Error: 184 failed 
+Error: 201 failed 
+Error: 203 failed 
+Error: 206 failed 
+Error: 208 failed 
+Error: 214 failed 
+Error: 219 failed 
+Error: 221 failed 
+Error: 222 failed 
+Error: 229 failed 
+Error: 232 failed 
+Error: 252 failed 
+Error: 261 failed 
+Error: 268 failed 
+Error: 274 failed 
+Error: 276 failed 
+Error: 281 failed 
+Error: 283 failed 
+Error: 288 failed 
+Error: 290 failed 
+Error: 291 failed 
+Error: 294 failed 
+Error: 295 failed 
+Error: 309 failed 
+Error: 311 failed 
+Error: 314 failed 
+Error: 316 failed 
+Error: 324 failed 
+Error: 327 failed 
+Error: 329 failed 
+Error: 335 failed 
+Error: 339 failed 
+Error: 341 failed 
+Error: 343 failed 
+Error: 345 failed 
+Error: 346 failed 
+Error: 350 failed 
+Error: 358 failed 
+Error: 360 failed 
+Error: 361 failed 
+Error: 362 failed 
+Error: 377 failed 
+Error: 380 failed 
+Error: 381 failed 
+Error: 390 failed 
+Error: 394 failed 
+Error: 396 failed 
+Error: 403 failed 
+Error: 414 failed 
+Error: 415 failed 
+Error: 421 failed 
+Error: 423 failed 
+Error: 424 failed 
+Error: 430 failed 
+Error: 431 failed 
+Error: 432 failed 
+Error: 446 failed 
+Error: 448 failed 
+Error: 450 failed 
+Error: 452 failed 
+Error: 453 failed 
+Error: 465 failed 
+Error: 467 failed 
+Error: 471 failed 
+Error: 475 failed 
+Error: 480 failed 
+Error: 482 failed 
+Error: 484 failed 
+Error: 486 failed 
+Error: 492 failed 
+Error: 494 failed 
+Error: 495 failed 
+Error: 505 failed 
+Error: 508 failed 
+Error: 512 failed 
+Error: 515 failed 
+Error: 517 failed 
+Error: 526 failed 
+Error: 531 failed 
+Error: 532 failed 
+Error: 533 failed 
+Error: 534 failed 
+Error: 539 failed 
+Error: 540 failed 
+Error: 543 failed 
+Error: 544 failed 
+Error: 545 failed 
+Error: 546 failed 
+Error: 547 failed 
+Error: 549 failed 
+Error: 555 failed 
+Error: 557 failed 
+Error: 559 failed 
+Error: 560 failed 
+Error: 563 failed 
+Error: 565 failed 
+Error: 567 failed 
+Error: 568 failed 
+Error: 569 failed 
+Error: 572 failed 
+Error: 575 failed 
+Error: 577 failed 
+Error: 581 failed 
+Error: 584 failed"
+
+# take the failed dois, convert them into numerical values
+failed_dois <- as.numeric(unlist(str_extract_all(failed_dois, "[0-9]{1,4}")))
+
+# index test_dois by the failed ones so we just grab those dois
+failed_dois <- test_dois[failed_dois]
+
+failed_alm <- function(x){
+  tryCatch({
+    altmetrics(doi = failed_dois[x]) %>% 
+  altmetric_data() %>% 
+ select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct,  details_url)
+    }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+# grabbed all the dois I could
+failed_results <- map_df(seq_along(failed_dois), failed_alm)
+
+failed_results$cited_by_tweeters_count <- NA
+failed_results <- failed_results %>% select(1, 2, 3, 4,5, 6, 7, 8, 10,9)
+
+apsa_altmetric_dois <- rbind(results, failed_results)
+
+# merge with apsa_full
+apsa_full <- apsa_full %>% 
+  filter(title != "Notes from the Editors") %>% 
+  left_join(apsa_altmetric_dois, by = "title")
+apsa_full$source <- "APSA"
+
+```
+
+
+```{r, American Journal of Political Science, cache = TRUE}
+
+# Get links to other pages
+get_links <- function(x){
+  paste0("https://onlinelibrary.wiley.com/action/doSearch?SeriesKey=15405907&content=articlesChapters&countTerms=true&sortBy=Earliest&target=default&startPage=", x, "&pageSize=20")
+}
+
+url_list <- map_chr(0:53, get_links)
+
+# Get the unique html links and create full link version
+get_unique_links <- function(x){
+  temp <- read_html(url_list[x])
+  
+  temp %>%
+    html_nodes(".visitable") %>% 
+    html_attr("href")
+}
+
+unique_links <- map(1:54, get_unique_links)
+unique_links <- unlist(unique_links)
+unique_links <- paste0("https://onlinelibrary.wiley.com", unique_links)
+unique_links <- unique_links[1:28]
+
+# Titles
+grab_titles <- function(x){
+  unique_links_read <- read_html(unique_links[x])
+  
+  unique_links_read %>% 
+    html_nodes(".citation__title") %>% 
+    html_text() %>% 
+    as_tibble()
+}
+
+titles <- map(seq_along(unique_links), grab_titles)
+titles <- unlist(titles)
+
+# Dates
+grab_dates <- function(x){
+  unique_links_read <- read_html(unique_links[x])
+  
+  unique_links_read %>% 
+    html_nodes(".epub-date") %>% 
+    html_text() %>% 
+    as_tibble()
+}
+
+dates <- map(seq_along(unique_links), grab_dates)
+dates <- unlist(dates)
+
+# Grab_text
+grab_text <- function(x){
+  unique_links_read <- read_html(unique_links[x])
+  
+  unique_links_read %>% 
+  html_nodes("#article__content") %>% 
+  html_text() %>% 
+  str_trim() %>% 
+  str_squish() %>% 
+  toString() %>% 
+  as_tibble()
+}
+
+text <- map_df(seq_along(unique_links), grab_text)
+text <- unlist(text)
+
+# Create a dataframe for the text to go into
+ajps <- cbind(dates, text, titles)
+ajps$source <- "AJPS"
+ajps <- ajps %>% 
+  mutate(dates = dmy(dates))
+
+full_ajps <- full_txt %>% 
+  unnest_tokens(full_text, text, token = "sentences") %>% 
+  filter(source != "PSQ") %>% 
+  transform(source = case_when(source == "APSA" ~ "AJPS")) %>% 
+  select(date, full_text, name, source) %>% 
+  rename(dates = date, value = full_text, titles = name) %>% 
+  rbind(ajps) %>% arrange(desc(dates))
+```
+
+```{r Altmetric}
+# Altmetric
+grab_doi <- function(x){
+test <- read_html(paste0("https://onlinelibrary.wiley.com/doi/", test_dois[x]))
+test %>% 
+  html_nodes(".epub-doi") %>% 
+  html_attr("href")
+}
+
+ajps_dois <- map_chr(seq_along(test_dois), grab_doi)
+
+test_dois <- str_replace(ajps, "https://doi.org/", "")
+
+alm <- function(x){
+  tryCatch({
+    altmetrics(doi = test_dois[x]) %>% 
+  altmetric_data() %>% 
+  select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct, cited_by_tweeters_count, details_url)
+    }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+results <- map_df(seq_along(test_dois), alm)
+
+```
+
+
+```{r Failed dois}
+# either these actually failed or don't have the "cited_by_tweeters_count" columns
+failed_dois <- "Error: 2 failed 
+Error: 18 failed 
+Error: 20 failed 
+Error: 34 failed 
+Error: 35 failed 
+Error: 51 failed 
+Error: 60 failed 
+Error: 71 failed 
+Error: 108 failed 
+Error: 117 failed 
+Error: 126 failed 
+Error: 130 failed 
+Error: 137 failed 
+Error: 155 failed 
+Error: 157 failed 
+Error: 161 failed 
+Error: 164 failed 
+Error: 165 failed 
+Error: 174 failed 
+Error: 178 failed 
+Error: 179 failed 
+Error: 187 failed 
+Error: 209 failed 
+Error: 227 failed 
+Error: 235 failed 
+Error: 247 failed 
+Error: 259 failed 
+Error: 260 failed 
+Error: 278 failed 
+Error: 455 failed 
+Error: 476 failed 
+Error: 486 failed 
+Error: 509 failed 
+Error: 512 failed 
+Error: 524 failed 
+Error: 528 failed 
+Error: 529 failed 
+Error: 530 failed 
+Error: 536 failed 
+Error: 541 failed 
+Error: 542 failed 
+Error: 543 failed 
+Error: 544 failed 
+Error: 545 failed 
+Error: 547 failed 
+Error: 551 failed 
+Error: 554 failed 
+Error: 556 failed 
+Error: 557 failed 
+Error: 558 failed 
+Error: 559 failed 
+Error: 560 failed 
+Error: 562 failed 
+Error: 567 failed 
+Error: 568 failed 
+Error: 570 failed 
+Error: 571 failed 
+Error: 575 failed 
+Error: 576 failed 
+Error: 577 failed 
+Error: 578 failed 
+Error: 581 failed 
+Error: 582 failed 
+Error: 583 failed 
+Error: 584 failed 
+Error: 585 failed 
+Error: 587 failed 
+Error: 589 failed 
+Error: 590 failed 
+Error: 591 failed 
+Error: 592 failed 
+Error: 594 failed 
+Error: 595 failed 
+Error: 596 failed 
+Error: 598 failed 
+Error: 599 failed 
+Error: 601 failed 
+Error: 603 failed 
+Error: 604 failed 
+Error: 606 failed 
+Error: 607 failed 
+Error: 609 failed 
+Error: 610 failed 
+Error: 611 failed 
+Error: 613 failed 
+Error: 614 failed 
+Error: 616 failed 
+Error: 617 failed 
+Error: 619 failed 
+Error: 620 failed 
+Error: 621 failed 
+Error: 622 failed 
+Error: 623 failed 
+Error: 625 failed 
+Error: 629 failed 
+Error: 632 failed 
+Error: 633 failed 
+Error: 634 failed 
+Error: 636 failed 
+Error: 637 failed 
+Error: 638 failed 
+Error: 639 failed 
+Error: 640 failed 
+Error: 642 failed 
+Error: 643 failed 
+Error: 644 failed 
+Error: 652 failed 
+Error: 658 failed 
+Error: 660 failed 
+Error: 661 failed 
+Error: 662 failed 
+Error: 664 failed 
+Error: 665 failed 
+Error: 666 failed 
+Error: 667 failed 
+Error: 668 failed 
+Error: 669 failed 
+Error: 670 failed 
+Error: 671 failed 
+Error: 672 failed 
+Error: 673 failed 
+Error: 674 failed 
+Error: 676 failed 
+Error: 677 failed 
+Error: 678 failed 
+Error: 679 failed 
+Error: 680 failed 
+Error: 682 failed 
+Error: 683 failed 
+Error: 685 failed 
+Error: 686 failed 
+Error: 687 failed 
+Error: 688 failed 
+Error: 690 failed 
+Error: 692 failed 
+Error: 693 failed 
+Error: 694 failed 
+Error: 696 failed 
+Error: 697 failed 
+Error: 698 failed 
+Error: 699 failed 
+Error: 700 failed 
+Error: 702 failed 
+Error: 704 failed 
+Error: 707 failed 
+Error: 708 failed 
+Error: 709 failed 
+Error: 711 failed 
+Error: 712 failed 
+Error: 713 failed 
+Error: 714 failed 
+Error: 716 failed 
+Error: 718 failed 
+Error: 721 failed 
+Error: 722 failed 
+Error: 723 failed 
+Error: 724 failed 
+Error: 725 failed 
+Error: 727 failed 
+Error: 728 failed 
+Error: 729 failed 
+Error: 730 failed 
+Error: 731 failed 
+Error: 732 failed 
+Error: 733 failed 
+Error: 735 failed 
+Error: 736 failed 
+Error: 739 failed 
+Error: 740 failed 
+Error: 741 failed 
+Error: 742 failed 
+Error: 744 failed 
+Error: 746 failed 
+Error: 747 failed 
+Error: 748 failed 
+Error: 749 failed 
+Error: 750 failed 
+Error: 755 failed 
+Error: 756 failed 
+Error: 757 failed 
+Error: 758 failed 
+Error: 759 failed 
+Error: 760 failed 
+Error: 761 failed 
+Error: 764 failed 
+Error: 768 failed 
+Error: 769 failed 
+Error: 773 failed 
+Error: 774 failed 
+Error: 775 failed 
+Error: 778 failed 
+Error: 779 failed 
+Error: 780 failed 
+Error: 781 failed 
+Error: 784 failed 
+Error: 785 failed 
+Error: 789 failed 
+Error: 791 failed 
+Error: 793 failed 
+Error: 795 failed 
+Error: 796 failed 
+Error: 797 failed 
+Error: 798 failed 
+Error: 800 failed 
+Error: 801 failed 
+Error: 802 failed 
+Error: 803 failed 
+Error: 804 failed 
+Error: 805 failed 
+Error: 806 failed 
+Error: 807 failed 
+Error: 808 failed 
+Error: 810 failed 
+Error: 813 failed 
+Error: 814 failed 
+Error: 815 failed 
+Error: 816 failed 
+Error: 819 failed 
+Error: 820 failed 
+Error: 822 failed 
+Error: 827 failed 
+Error: 828 failed 
+Error: 829 failed 
+Error: 830 failed 
+Error: 832 failed 
+Error: 833 failed 
+Error: 834 failed 
+Error: 836 failed 
+Error: 839 failed 
+Error: 840 failed 
+Error: 841 failed 
+Error: 842 failed 
+Error: 843 failed 
+Error: 845 failed 
+Error: 847 failed 
+Error: 849 failed 
+Error: 850 failed 
+Error: 852 failed 
+Error: 854 failed 
+Error: 856 failed 
+Error: 857 failed 
+Error: 858 failed 
+Error: 859 failed 
+Error: 860 failed 
+Error: 861 failed 
+Error: 862 failed 
+Error: 864 failed 
+Error: 865 failed 
+Error: 866 failed 
+Error: 868 failed 
+Error: 869 failed 
+Error: 871 failed 
+Error: 875 failed 
+Error: 877 failed 
+Error: 878 failed 
+Error: 879 failed 
+Error: 881 failed 
+Error: 884 failed 
+Error: 885 failed 
+Error: 886 failed 
+Error: 888 failed 
+Error: 889 failed 
+Error: 890 failed 
+Error: 891 failed 
+Error: 893 failed 
+Error: 894 failed 
+Error: 895 failed 
+Error: 896 failed 
+Error: 898 failed 
+Error: 899 failed 
+Error: 900 failed 
+Error: 901 failed 
+Error: 902 failed 
+Error: 903 failed 
+Error: 904 failed 
+Error: 905 failed 
+Error: 906 failed 
+Error: 907 failed 
+Error: 909 failed 
+Error: 910 failed 
+Error: 911 failed 
+Error: 913 failed 
+Error: 914 failed 
+Error: 915 failed 
+Error: 916 failed 
+Error: 917 failed 
+Error: 918 failed 
+Error: 920 failed 
+Error: 921 failed 
+Error: 922 failed 
+Error: 923 failed 
+Error: 924 failed 
+Error: 928 failed 
+Error: 929 failed 
+Error: 931 failed 
+Error: 932 failed 
+Error: 933 failed 
+Error: 934 failed 
+Error: 935 failed 
+Error: 936 failed 
+Error: 937 failed 
+Error: 938 failed 
+Error: 939 failed 
+Error: 940 failed 
+Error: 941 failed 
+Error: 942 failed 
+Error: 943 failed 
+Error: 944 failed 
+Error: 945 failed 
+Error: 946 failed 
+Error: 947 failed 
+Error: 948 failed 
+Error: 949 failed 
+Error: 950 failed 
+Error: 951 failed 
+Error: 953 failed 
+Error: 954 failed 
+Error: 955 failed 
+Error: 956 failed 
+Error: 957 failed 
+Error: 959 failed 
+Error: 960 failed 
+Error: 962 failed 
+Error: 963 failed 
+Error: 964 failed 
+Error: 965 failed 
+Error: 966 failed 
+Error: 967 failed 
+Error: 968 failed 
+Error: 970 failed 
+Error: 971 failed 
+Error: 972 failed 
+Error: 973 failed 
+Error: 974 failed 
+Error: 975 failed 
+Error: 976 failed 
+Error: 977 failed 
+Error: 978 failed 
+Error: 979 failed 
+Error: 980 failed 
+Error: 981 failed 
+Error: 984 failed 
+Error: 985 failed 
+Error: 986 failed 
+Error: 987 failed 
+Error: 988 failed 
+Error: 989 failed 
+Error: 990 failed 
+Error: 991 failed 
+Error: 994 failed 
+Error: 995 failed 
+Error: 996 failed 
+Error: 997 failed 
+Error: 999 failed 
+Error: 1001 failed 
+Error: 1002 failed 
+Error: 1003 failed 
+Error: 1005 failed 
+Error: 1006 failed 
+Error: 1007 failed 
+Error: 1008 failed 
+Error: 1009 failed 
+Error: 1010 failed 
+Error: 1011 failed 
+Error: 1012 failed 
+Error: 1013 failed 
+Error: 1016 failed 
+Error: 1017 failed 
+Error: 1018 failed 
+Error: 1020 failed 
+Error: 1021 failed 
+Error: 1022 failed 
+Error: 1023 failed 
+Error: 1024 failed 
+Error: 1025 failed 
+Error: 1026 failed 
+Error: 1027 failed 
+Error: 1028 failed 
+Error: 1029 failed 
+Error: 1030 failed 
+Error: 1032 failed 
+Error: 1033 failed 
+Error: 1034 failed 
+Error: 1035 failed 
+Error: 1036 failed 
+Error: 1037 failed 
+Error: 1039 failed 
+Error: 1040 failed 
+Error: 1041 failed 
+Error: 1042 failed 
+Error: 1043 failed 
+Error: 1044 failed 
+Error: 1045 failed 
+Error: 1046 failed 
+Error: 1047 failed 
+Error: 1048 failed 
+Error: 1049 failed 
+Error: 1050 failed 
+Error: 1052 failed 
+Error: 1053 failed 
+Error: 1054 failed 
+Error: 1055 failed 
+Error: 1056 failed 
+Error: 1057 failed 
+Error: 1059 failed 
+Error: 1061 failed 
+Error: 1062 failed 
+Error: 1063 failed" 
+
+# take the failed dois, convert them into numerical values
+failed_dois <- as.numeric(unlist(str_extract_all(failed_dois, "[0-9]{1,4}")))
+
+# index test_dois by the failed ones so we just grab those dois
+failed_dois <- test_dois[failed_dois]
+
+failed_alm <- function(x){
+  tryCatch({
+    altmetrics(doi = failed_dois[x]) %>% 
+  altmetric_data() %>% 
+ select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct,  details_url)
+    }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+# grabbed all the dois i could
+failed_results <- map_df(seq_along(failed_dois), failed_alm)
+
+```
+
+```{r Combine Altmetric with AJPS}
+# combine altmetric results
+failed_results$cited_by_tweeters_count <- NA
+results <- rbind(results, failed_results)
+ajps <- ajps %>% 
+  rename(title = titles) %>% 
+  left_join(results, by = "title")
+```
+
+
+```{r PSQ}
+url <- read_html("https://onlinelibrary.wiley.com/loi/1538165x")
+
+# issue base page
+issue_base_pages <- paste0("https://onlinelibrary.wiley.com/loi/1538165x/year/", 1998:2019)
+
+grab_issue_links <- function(x){
+issue_link <- read_html(issue_base_pages[x])
+
+issue_link %>%
+  html_nodes(".visitable") %>% 
+  html_attr("href")
+}
+
+issue_links <- map(seq_along(issue_base_pages), grab_issue_links)
+issue_links <- unlist(issue_links)
+issue_links <- paste0("https://onlinelibrary.wiley.com", issue_links)
+
+# issue info
+grab_dois <- function(x){
+test <- read_html(issue_links[x])
+test %>%
+  html_nodes("div.issue-item") %>% 
+  html_nodes("a.issue-item__title.visitable") %>% 
+  html_attr("href")
+}
+
+psq_dois <- map(seq_along(issue_links), grab_dois)
+psq_dois <- unlist(psq_dois)
+
+
+# reformat PSQ
+psq_full <- full_txt %>% 
+  unnest_tokens(full_text, text, token = "sentences") %>%
+  filter(source != "APSA") %>% 
+  select(date, full_text, name, source) %>% 
+  rename(dates = date, value = full_text, titles = name)
+
+test_dois <- str_replace(psq_dois, "/doi/", "")
+
+alm <- function(x){
+  tryCatch({
+    altmetrics(doi = test_dois[x]) %>% 
+  altmetric_data() %>% 
+  select(title, score, context.all.rank, context.all.count, context.all.pct, context.similar_age_3m.rank, context.similar_age_3m.count, context.similar_age_3m.pct, cited_by_tweeters_count, details_url)
+    }, error = function(e){cat("Error:", x, "failed", "\n")})
+}
+
+results <- map_df(seq_along(test_dois), alm)
+
+psq_full <- psq_full %>% 
+  rename(title = titles) %>% 
+  left_join(results, by = "title")
+```
+
+
+```{r Combine All}
+# change class of columns
+ajps$doi <- NA
+cols_to_change <- c(5:12)
+ajps[,cols_to_change] <- apply(ajps[,cols_to_change], 2, function(x) as.numeric(as.character(x)))
+
+cols_to_change <- c(6:13)
+political_analysis_text[,cols_to_change] <- apply(political_analysis_text[,cols_to_change], 2, function(x) as.numeric(as.character(x)))
+
+political_analysis_text[,5:13]
+
+psq_full$doi <- NA
+cols_to_change <- c(5:12)
+psq_full[,cols_to_change] <- apply(psq_full[,cols_to_change], 2, function(x) as.numeric(as.character(x)))
+
+ajps <- ajps %>% dplyr::select("dates", "title", "text", "source", "doi", everything()) %>% rename(text = value, date = dates)
+psq_full <- psq_full %>% dplyr::select("dates", "title", "text", "source", "doi", everything()) %>% rename(text = value, date = dates)
+political_analysis_text <- political_analysis_text %>% dplyr::select("date", "title", "text", "doi", everything())
+
+# combine AJPS, PSQ, and PA
+full_texts <- rbind(ajps, political_analysis_text, psq_full)
+
+# combine with APSA
+apsa_full$doi <- NA
+apsa_full <- apsa_full %>% select(1, 2, 3, 13, 14, everything())
+cols_to_change <- c(5:12)
+apsa_full[,cols_to_change] <- apply(apsa_full[,cols_to_change], 2, function(x) as.numeric(as.character(x)))
+apsa_full <- apsa_full %>% mutate(date = dmy(as.character(date)))
+
+full_texts <- full_texts %>% rbind(apsa_full)
+```
+
+
+
+```{r}
+# topic modeling
+# put into a document term matrix
+txt_dtm <- tidy_txt %>% 
+  select(-date) %>% 
+  count(source, word, sort = T) %>% 
+  cast_dtm(source, word, n)
+
+txt_lda <- LDA(txt_dtm, k = 25, control = list(seed = 8))
+beep(1)
+txt_lda
+
+# beta tells us the prob that that term would be found in that document
+tidy_lda <- tidy(txt_lda)
+tidy_lda %>% 
+  group_by(topic, term) %>% 
+  arrange(desc(beta)) %>% 
+  filter(beta >= 0.001, topic == 1) %>% 
+  ggplot(aes(term, beta)) +
+  geom_col()
+  facet_grid( . ~ topic)
+
+tidy_lda %>% 
+  group_by(topic) %>% 
+  top_n(10)
+```
+
+
+
+
